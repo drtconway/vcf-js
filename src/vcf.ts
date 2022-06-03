@@ -100,7 +100,7 @@ export interface VCFEntry {
   genotype?: { [sample: string]: { [key: string]: string | number } };
 }
 
-export type VEPAnnotation = { [key: string]: string };
+export type VEPAnnotation = { [key: string]: string | number };
 
 export class VCFBase {
   sourceName: string;
@@ -312,7 +312,8 @@ export class VCFBase {
         let annot: VEPAnnotation = {};
         for (let i = 0; i < flds.length; ++i) {
           if (i < vals.length) {
-            annot[flds[i]] = vals[i];
+            const num = Number(vals[i]);
+            annot[flds[i]] = (Number.isFinite(num) ? num : vals[i]);
           }
         }
         res.push(annot);

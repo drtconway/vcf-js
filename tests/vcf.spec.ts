@@ -396,7 +396,7 @@ describe("synchronous parsing", () => {
     expect(p(v1)).to.be.null;
     const v2 = vcf.next();
     expect(v1).to.not.be.null;
-    expect(p(v2)).to.eql([{ Allele: "4" }]);
+    expect(p(v2)).to.eql([{ Allele: 4 }]);
     const v3 = vcf.next();
     expect(p(v3)).to.not.be.null;
   });
