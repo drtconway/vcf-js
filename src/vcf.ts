@@ -330,7 +330,7 @@ export class VCF extends VCFBase {
     this.lines = lines;
   }
 
-  meta() {
+  meta(): VCFMeta {
     if (!this.metaData) {
       this.metaData = { INFO: {}, FILTER: {}, FORMAT: {}, extra: { structured: {}, unstructured: {} } };
       while (true) {
@@ -352,6 +352,44 @@ export class VCF extends VCFBase {
       this.meta();
     }
     const { done, value } = this.lines.next();
+    if (done) {
+      return null;
+    }
+    this.lineNum += 1;
+    return this.parseDataLine(value);
+  }
+}
+
+export class VCFAsync extends VCFBase {
+  lines: AsyncIterator<string>;
+
+  constructor(sourceName: string, lines: AsyncIterator<string>) {
+    super(sourceName);
+    this.lines = lines;
+  }
+
+  async meta(): Promise<VCFMeta> {
+    if (!this.metaData) {
+      this.metaData = { INFO: {}, FILTER: {}, FORMAT: {}, extra: { structured: {}, unstructured: {} } };
+      while (true) {
+        const { done, value } = await this.lines.next();
+        if (done) {
+          throw new Error(`${this.sourceName}:${this.lineNum}: unexpected end of input.`);
+        }
+        const finished = this.parseMetaLine(value);
+        if (finished) {
+          break;
+        }
+      }
+      return this.metaData;
+    }
+  }
+
+  async next(): Promise<VCFEntry | null> {
+    if (!this.metaData) {
+      await this.meta();
+    }
+    const { done, value } = await this.lines.next();
     if (done) {
       return null;
     }

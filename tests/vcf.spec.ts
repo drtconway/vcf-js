@@ -1,4 +1,4 @@
-import { VCF } from "../src/vcf";
+import { VCF, VCFAsync } from "../src/vcf";
 
 import * as mocha from "mocha";
 import * as chai from "chai";
@@ -161,7 +161,7 @@ const SRR1301456: readonly string[] = [
   "chrX	141003560	.	C	G	9860.77	.	ABHet=0.248;AC=1;AF=0.5;AN=2;BaseQRankSum=-9.999;ClippingRankSum=0;DP=420;ExcessHet=3.0103;FS=119.242;GQ_MEAN=2517;LikelihoodRankSum=0.233;MLEAC=1;MLEAF=0.5;MQ=44.71;MQRankSum=-0.645;NCC=0;QD=23.53;ReadPosRankSum=-1.4;SOR=0.013;VariantType=SNP;set=snv;ANN=G|missense_variant|MODERATE|SPANXB1|728695|Transcript|NM_032461.3|protein_coding|2/2||NM_032461.3:c.220C>G|NP_115850.2:p.Leu74Val|323|220|74|L/V|Ctg/Gtg||1||1|EntrezGene||YES|NP_115850.2|rseq_mrna_match&rseq_ens_match_wt|tolerated_low_confidence(1)|benign(0.001)|||||||||||||||||||||||0.001|32	GT:AD:DP:GQ:PL:VF	0/1:104,315:419:99:9889,0,2517:0.752",
 ];
 
-describe("strict parsing", () => {
+describe("synchronous parsing", () => {
   it("metadata checks", () => {
     const vcf = new VCF("SRR1301456", SRR1301456.values());
     const meta = vcf.meta();
@@ -177,6 +177,7 @@ describe("strict parsing", () => {
       PASS: { ID: "PASS", Description: "All filters passed" },
     });
   });
+
   it("basic variant checks", () => {
     const vcf = new VCF("SRR1301456", SRR1301456.values());
     const v = vcf.next();
@@ -437,11 +438,7 @@ describe("strict parsing", () => {
   });
 
   it("INFO declaration with more unstructred metadata.", () => {
-    const lines: string[] = [
-      '##QUX=the quick brown fox',
-      '##QUX=jumps over the lazy dog',
-      "#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO",
-    ];
+    const lines: string[] = ["##QUX=the quick brown fox", "##QUX=jumps over the lazy dog", "#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO"];
     const vcf = new VCF("SRR1301456", lines.values());
     const meta = vcf.meta();
     const metaAgain = vcf.meta();
@@ -449,12 +446,68 @@ describe("strict parsing", () => {
   });
 
   it("not done yet!", () => {
-    const lines: string[] = [
-      '##QUX=the quick brown fox',
-      '##QUX=jumps over the lazy dog',
-    ];
+    const lines: string[] = ["##QUX=the quick brown fox", "##QUX=jumps over the lazy dog"];
     const vcf = new VCF("SRR1301456", lines.values());
     expect(() => vcf.meta()).to.throw(Error, "SRR1301456:2: unexpected end of input.");
   });
+});
 
+async function* asyncLines(xs: readonly string[]): AsyncGenerator<string> {
+  for (const x of xs) {
+    yield x;
+  }
+}
+
+async function expectThrowsAsync(method: () => any, errorMessage: string): Promise<void> {
+  let error = null;
+  try {
+    await method();
+  } catch (err) {
+    error = err;
+  }
+  expect(error).to.be.an("Error");
+  if (errorMessage) {
+    expect(error.message).to.equal(errorMessage);
+  }
+}
+
+describe("asynchronous parsing", () => {
+  it("basic metadata checks", async () => {
+    const vcf = new VCFAsync("SRR1301456", asyncLines(SRR1301456));
+    const meta = await vcf.meta();
+    const moreMeta = await vcf.meta();
+    expect("ABHet" in meta.INFO).to.be.true;
+    expect(meta.INFO["ABHet"]).to.eql({
+      ID: "ABHet",
+      Number: 1,
+      Type: "Float",
+      Description: "Allele Balance for heterozygous calls (ref/(ref+alt))",
+    });
+    expect(meta.FILTER).to.eql({
+      LowQual: { ID: "LowQual", Description: "Low quality", Source: "Home", Version: "1.1.2" },
+      PASS: { ID: "PASS", Description: "All filters passed" },
+    });
+  });
+
+  it("basic variant checks", async () => {
+    const vcf = new VCFAsync("SRR1301456", asyncLines(SRR1301456));
+    let n = 0;
+    let j = 0;
+    while (true) {
+      const v = await vcf.next();
+      if (v == null) {
+        break;
+      }
+      n += 1;
+      j ^= v.POS;
+    }
+    expect(n).to.equal(79);
+    expect(j).to.equal(23679625);
+  });
+
+  it("not done yet!", async () => {
+    const lines: string[] = ["##QUX=the quick brown fox", "##QUX=jumps over the lazy dog"];
+    const vcf = new VCFAsync("SRR1301456", asyncLines(lines));
+    await expectThrowsAsync(() => vcf.meta(), "SRR1301456:2: unexpected end of input.");
+  });
 });
