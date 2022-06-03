@@ -436,7 +436,7 @@ describe("strict parsing", () => {
     expect(() => vcf.meta()).to.throw(Error, "expected a type, got 'Quux'.");
   });
 
-  it("INFO declaration with invalid Type", () => {
+  it("INFO declaration with more unstructred metadata.", () => {
     const lines: string[] = [
       '##QUX=the quick brown fox',
       '##QUX=jumps over the lazy dog',
@@ -444,7 +444,17 @@ describe("strict parsing", () => {
     ];
     const vcf = new VCF("SRR1301456", lines.values());
     const meta = vcf.meta();
+    const metaAgain = vcf.meta();
     expect(meta.extra.unstructured["QUX"].length).to.eql(2);
+  });
+
+  it("not done yet!", () => {
+    const lines: string[] = [
+      '##QUX=the quick brown fox',
+      '##QUX=jumps over the lazy dog',
+    ];
+    const vcf = new VCF("SRR1301456", lines.values());
+    expect(() => vcf.meta()).to.throw(Error, "SRR1301456:2: unexpected end of input.");
   });
 
 });

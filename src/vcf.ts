@@ -102,137 +102,93 @@ export interface VCFEntry {
 
 export type VEPAnnotation = { [key: string]: string };
 
-export class VCF {
+export class VCFBase {
   sourceName: string;
-  lines: Iterator<string>;
   lineNum: number;
   metaData?: VCFMeta;
 
-  constructor(sourceName: string, lines: Iterator<string>) {
+  constructor(sourceName: string) {
     this.sourceName = sourceName;
-    this.lines = lines;
     this.lineNum = 0;
   }
 
-  meta() {
-    if (!this.metaData) {
-      this.metaData = { INFO: {}, FILTER: {}, FORMAT: {}, extra: { structured: {}, unstructured: {} } };
-      while (true) {
-        const { done, value } = this.lines.next();
-        this.lineNum += 1;
-        if (done || !value.startsWith("#")) {
-          throw new Error(`reading ${this.sourceName}:${this.lineNum}: unexpected end of metadata.`);
-        }
+  parseMetaLine(value: string): boolean {
+    this.lineNum += 1;
+    if (!value.startsWith("#")) {
+      throw new Error(`reading ${this.sourceName}:${this.lineNum}: unexpected end of metadata.`);
+    }
 
-        if (value.startsWith("##")) {
-          let [metaKey, metaVal] = value
-            .trim()
-            .match(/^##(.+?)=(.*)/)
-            .slice(1, 3);
-          if (metaVal.startsWith("<")) {
-            metaVal = metaVal.replace(/^<|>$/g, "");
-            let metaDict = this.makeKeyValDict(metaVal, ",");
-            switch (metaKey) {
-              case "INFO": {
-                const ifo = objectToVCFMetaInfo(metaDict);
-                this.metaData.INFO[ifo.ID] = ifo;
-                break;
-              }
-              case "FILTER": {
-                const flt = objectToVCFMetaFilter(metaDict);
-                this.metaData.FILTER[flt.ID] = flt;
-                break;
-              }
-              case "FORMAT": {
-                const fmt = objectToVCFMetaFormat(metaDict);
-                this.metaData.FORMAT[fmt.ID] = fmt;
-                break;
-              }
-              default: {
-                if (!(metaKey in this.metaData.extra.structured)) {
-                  this.metaData.extra.structured[metaKey] = {};
-                }
-                this.metaData.extra.structured[metaKey][metaDict.ID] = metaDict;
-              }
-            }
-          } else {
-            if (!(metaKey in this.metaData.extra.unstructured)) {
-              this.metaData.extra.unstructured[metaKey] = [];
-            }
-            this.metaData.extra.unstructured[metaKey].push(metaVal);
-          }
-        }
-
-        if (value.startsWith("#CHROM")) {
-          let parts = value.trim().split(/\t/g);
-          let fixedFields = ["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT"];
-          if (parts.length == fixedFields.length - 1) {
-            // Handle the case of GNOMAD-like reference VCFs.
-            for (let i = 0; i < fixedFields.length - 1; ++i) {
-              if (parts[i] != fixedFields[i]) {
-                throw new Error(`reading ${this.sourceName}:${this.lineNum}: malformed header - expected ${fixedFields[i]} but got ${parts[i]}.`);
-              }
-            }
-            this.metaData.sample_ids = [];
+    if (value.startsWith("##")) {
+      let [metaKey, metaVal] = value
+        .trim()
+        .match(/^##(.+?)=(.*)/)
+        .slice(1, 3);
+      if (metaVal.startsWith("<")) {
+        metaVal = metaVal.replace(/^<|>$/g, "");
+        let metaDict = this.makeKeyValDict(metaVal, ",");
+        switch (metaKey) {
+          case "INFO": {
+            const ifo = objectToVCFMetaInfo(metaDict);
+            this.metaData.INFO[ifo.ID] = ifo;
             break;
           }
-          if (parts.length < fixedFields.length) {
-            throw new Error(`reading ${this.sourceName}:${this.lineNum}: missing fixed fields in the header line (${parts})`);
+          case "FILTER": {
+            const flt = objectToVCFMetaFilter(metaDict);
+            this.metaData.FILTER[flt.ID] = flt;
+            break;
           }
-          for (let i = 0; i < fixedFields.length; ++i) {
-            if (parts[i] != fixedFields[i]) {
-              throw new Error(`reading ${this.sourceName}:${this.lineNum}: malformed header - expected ${fixedFields[i]} but got ${parts[i]}.`);
+          case "FORMAT": {
+            const fmt = objectToVCFMetaFormat(metaDict);
+            this.metaData.FORMAT[fmt.ID] = fmt;
+            break;
+          }
+          default: {
+            if (!(metaKey in this.metaData.extra.structured)) {
+              this.metaData.extra.structured[metaKey] = {};
             }
+            this.metaData.extra.structured[metaKey][metaDict.ID] = metaDict;
           }
-          this.metaData.sample_ids = [];
-          for (let i = fixedFields.length; i < parts.length; ++i) {
-            this.metaData.sample_ids.push(parts[i]);
+        }
+      } else {
+        if (!(metaKey in this.metaData.extra.unstructured)) {
+          this.metaData.extra.unstructured[metaKey] = [];
+        }
+        this.metaData.extra.unstructured[metaKey].push(metaVal);
+      }
+    }
+
+    if (value.startsWith("#CHROM")) {
+      let parts = value.trim().split(/\t/g);
+      let fixedFields = ["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT"];
+      if (parts.length == fixedFields.length - 1) {
+        // Handle the case of GNOMAD-like reference VCFs.
+        for (let i = 0; i < fixedFields.length - 1; ++i) {
+          if (parts[i] != fixedFields[i]) {
+            throw new Error(
+              `reading ${this.sourceName}:${this.lineNum}: malformed header - expected ${fixedFields[i]} but got ${parts[i]}.`
+            );
           }
-          break;
+        }
+        this.metaData.sample_ids = [];
+        return true;
+      }
+      if (parts.length < fixedFields.length) {
+        throw new Error(`reading ${this.sourceName}:${this.lineNum}: missing fixed fields in the header line (${parts})`);
+      }
+      for (let i = 0; i < fixedFields.length; ++i) {
+        if (parts[i] != fixedFields[i]) {
+          throw new Error(
+            `reading ${this.sourceName}:${this.lineNum}: malformed header - expected ${fixedFields[i]} but got ${parts[i]}.`
+          );
         }
       }
-    }
-    return this.metaData;
-  }
-
-  next(): VCFEntry | null {
-    const m = this.meta();
-    const { done, value } = this.lines.next();
-    if (done) {
-      return null;
-    }
-    this.lineNum += 1;
-    let parts = value.trim().split(/\t/g);
-    if (parts.length != (m.sample_ids.length == 0 ? 8 : 9 + m.sample_ids.length)) {
-      throw new Error(`${this.sourceName}:${this.lineNum}: expected ${9 + m.sample_ids.length} fields, got ${parts.length}.`);
-    }
-    let res: Partial<VCFEntry> = {};
-    const CHROM = parts[0];
-    const POS = Number(parts[1]);
-    const ID = parts[2];
-    const REF = parts[3];
-    const ALT = parts[4];
-    const QUAL = parts[5];
-    const FILTER = parts[6];
-    let infoStr = parts[7];
-    const INFO = this.makeKeyValDict(infoStr, ";");
-    if (m.sample_ids.length == 0) {
-      return { CHROM, POS, ID, REF, ALT, QUAL, FILTER, INFO };
-    }
-    const FORMAT = parts[8];
-    let fmts = parts[8].split(/:/g);
-    const genotype: { [sample: string]: { [key: string]: string } } = {};
-    for (let i = 0; i < m.sample_ids.length; ++i) {
-      let sid = m.sample_ids[i];
-      let gtStr = parts[9 + i];
-      let gtParts = gtStr.split(/:/g);
-      let gt = {};
-      for (let j = 0; j < fmts.length; ++j) {
-        gt[fmts[j]] = gtParts[j];
+      this.metaData.sample_ids = [];
+      for (let i = fixedFields.length; i < parts.length; ++i) {
+        this.metaData.sample_ids.push(parts[i]);
       }
-      genotype[sid] = gt;
+      return true;
     }
-    return { CHROM, POS, ID, REF, ALT, QUAL, FILTER, INFO, FORMAT, genotype };
+    return false;
   }
 
   private makeKeyValDict(str: string, sep: string): { [key: string]: string | number } {
@@ -283,6 +239,40 @@ export class VCF {
     return dict;
   }
 
+  parseDataLine(value: string): VCFEntry {
+    let parts = value.trim().split(/\t/g);
+    if (parts.length != (this.metaData.sample_ids.length == 0 ? 8 : 9 + this.metaData.sample_ids.length)) {
+      throw new Error(`${this.sourceName}:${this.lineNum}: expected ${9 + this.metaData.sample_ids.length} fields, got ${parts.length}.`);
+    }
+    let res: Partial<VCFEntry> = {};
+    const CHROM = parts[0];
+    const POS = Number(parts[1]);
+    const ID = parts[2];
+    const REF = parts[3];
+    const ALT = parts[4];
+    const QUAL = parts[5];
+    const FILTER = parts[6];
+    let infoStr = parts[7];
+    const INFO = this.makeKeyValDict(infoStr, ";");
+    if (this.metaData.sample_ids.length == 0) {
+      return { CHROM, POS, ID, REF, ALT, QUAL, FILTER, INFO };
+    }
+    const FORMAT = parts[8];
+    let fmts = parts[8].split(/:/g);
+    const genotype: { [sample: string]: { [key: string]: string } } = {};
+    for (let i = 0; i < this.metaData.sample_ids.length; ++i) {
+      let sid = this.metaData.sample_ids[i];
+      let gtStr = parts[9 + i];
+      let gtParts = gtStr.split(/:/g);
+      let gt = {};
+      for (let j = 0; j < fmts.length; ++j) {
+        gt[fmts[j]] = gtParts[j];
+      }
+      genotype[sid] = gt;
+    }
+    return { CHROM, POS, ID, REF, ALT, QUAL, FILTER, INFO, FORMAT, genotype };
+  }
+
   static vepAnnotationParser(m: VCFMeta, field: string = "ANN", strict: boolean = true): (v: VCFEntry) => VEPAnnotation[] {
     if (!(field in m.INFO)) {
       throw new Error(`cannot find VEP annotation '${field}'.`);
@@ -329,6 +319,44 @@ export class VCF {
       }
       return res;
     };
+  }
+}
+
+export class VCF extends VCFBase {
+  lines: Iterator<string>;
+
+  constructor(sourceName: string, lines: Iterator<string>) {
+    super(sourceName);
+    this.lines = lines;
+  }
+
+  meta() {
+    if (!this.metaData) {
+      this.metaData = { INFO: {}, FILTER: {}, FORMAT: {}, extra: { structured: {}, unstructured: {} } };
+      while (true) {
+        const { done, value } = this.lines.next();
+        if (done) {
+          throw new Error(`${this.sourceName}:${this.lineNum}: unexpected end of input.`);
+        }
+        const finished = this.parseMetaLine(value);
+        if (finished) {
+          break;
+        }
+      }
+      return this.metaData;
+    }
+  }
+
+  next(): VCFEntry | null {
+    if (!this.metaData) {
+      this.meta();
+    }
+    const { done, value } = this.lines.next();
+    if (done) {
+      return null;
+    }
+    this.lineNum += 1;
+    return this.parseDataLine(value);
   }
 }
 
